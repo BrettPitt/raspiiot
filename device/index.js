@@ -24,8 +24,8 @@ var sha256 = require('crypto-js/sha256');
 
 //app deps
 var exceptions = require('./lib/exceptions');
-var isUndefined = require('../common/lib/is-undefined');
-var tlsReader = require('../common/lib/tls-reader');
+var isUndefined = require('./lib/is-undefined');
+var tlsReader = require('./lib/tls-reader');
 var path = require('path');
 var fs = require('fs');
 
