@@ -16,6 +16,7 @@ device.on('offline', function () { console.log('offline'); });
 device.on('error', function (error) { console.log('error', error); });
 device.on('connect', function () {
     console.log('Connected to MQTT!');
+    runFunction();
 });
 
 function sendMQTT(temp, device) {
@@ -31,7 +32,5 @@ function getTemp() {
 
 function runFunction() {
     let temp = getTemp();
-    sendMQTT(cputemp, device);
+    sendMQTT(temp, device);
 };
-
-runFunction();
