@@ -25,7 +25,7 @@ device.on('message', function (topic, payload) {
 
 function sendMQTT(temp, device) {
     console.log('Sending Message!');
-    let params = { "sk": "raspberrytemp", "temp": temp };
+    let params = { "id": "raspberrytemp", "ctemp": temp };
     device.publish("test", JSON.stringify(params));
 }
 
