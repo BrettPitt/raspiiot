@@ -14,20 +14,17 @@
  */
 
 //node.js deps
-var events = require('events');
-var inherits = require('util').inherits;
+const events = require('events');
+const inherits = require('util').inherits;
 
 //npm deps
-var mqtt = require('mqtt');
-var hmacSHA256 = require('crypto-js/hmac-sha256');
-var sha256 = require('crypto-js/sha256');
+const mqtt = require('mqtt');
+const crypto = require('crypto-js');
 
 //app deps
-var exceptions = require('./lib/exceptions');
-var isUndefined = require('./lib/is-undefined');
-var tlsReader = require('./lib/tls-reader');
-var path = require('path');
-var fs = require('fs');
+const exceptions = require('./lib/exceptions'),
+   isUndefined = require('./lib/is-undefined'),
+   tlsReader = require('./lib/tls-reader');
 
 //begin module
 function makeTwoDigits(n) {
@@ -58,16 +55,16 @@ function getDateString(dateTimeString) {
 }
 
 function getSignatureKey(key, dateStamp, regionName, serviceName) {
-   var kDate = hmacSHA256(dateStamp, 'AWS4' + key, {
+   var kDate = crypto.HmacSHA256(dateStamp, 'AWS4' + key, {
       asBytes: true
    });
-   var kRegion = hmacSHA256(regionName, kDate, {
+   var kRegion = crypto.HmacSHA256(regionName, kDate, {
       asBytes: true
    });
-   var kService = hmacSHA256(serviceName, kRegion, {
+   var kService = crypto.HmacSHA256(serviceName, kRegion, {
       asBytes: true
    });
-   var kSigning = hmacSHA256('aws4_request', kService, {
+   var kSigning = crypto.HmacSHA256('aws4_request', kService, {
       asBytes: true
    });
    return kSigning;
@@ -86,7 +83,7 @@ function signUrl(method, scheme, hostname, path, queryParams, accessId, secretKe
       canonicalHeaders + // headers
       '\n' + // required
       signedHeaders + '\n' + // signed header list
-      sha256(payload, {
+      crypto.SHA256(payload, {
          asBytes: true
       }); // hash of payload (empty string)
 
@@ -94,7 +91,7 @@ function signUrl(method, scheme, hostname, path, queryParams, accessId, secretKe
       console.log('canonical request: ' + canonicalRequest + '\n');
    }
 
-   var hashedCanonicalRequest = sha256(canonicalRequest, {
+   var hashedCanonicalRequest = crypto.SHA256(canonicalRequest, {
       asBytes: true
    });
 
@@ -117,7 +114,7 @@ function signUrl(method, scheme, hostname, path, queryParams, accessId, secretKe
       console.log('signing key: ' + signingKey + '\n');
    }
 
-   var signature = hmacSHA256(stringToSign, signingKey, {
+   var signature = crypto.HmacSHA256(stringToSign, signingKey, {
       asBytes: true
    });
 
@@ -144,65 +141,15 @@ function prepareWebSocketUrl(options, awsAccessId, awsSecretKey, awsSTSToken) {
    var now = getDateTimeString();
    var today = getDateString(now);
    var path = '/mqtt';
-   var awsServiceName = 'iotdevicegateway';
+   var awsServiceName = 'iotdata';
    var queryParams = 'X-Amz-Algorithm=AWS4-HMAC-SHA256' +
       '&X-Amz-Credential=' + awsAccessId + '%2F' + today + '%2F' + options.region + '%2F' + awsServiceName + '%2Faws4_request' +
       '&X-Amz-Date=' + now +
       '&X-Amz-SignedHeaders=host';
-   var hostName = options.host;
 
-   // Include the port number in the hostname if it's not
-   // the standard wss port (443).
-   //
-   if (!isUndefined(options.port) && options.port !== 443) {
-      hostName = options.host + ':' + options.port;
-   }
-   return signUrl('GET', 'wss://', hostName, path, queryParams,
+   return signUrl('GET', 'wss://', options.host, path, queryParams,
       awsAccessId, awsSecretKey, options.region, awsServiceName, '', today, now, options.debug, awsSTSToken);
 }
-
-function prepareWebSocketCustomAuthUrl(options) {
-   var path = '/mqtt';
-   var hostName = options.host;
-
-   // Include the port number in the hostname if it's not
-   // the standard wss port (443).
-   //
-   if (!isUndefined(options.port) && options.port !== 443) {
-      hostName = options.host + ':' + options.port;
-   }
-
-   return 'wss://' + hostName + path + (options.customAuthQueryString || '');
-}
-
-function arrayEach(array, iterFunction) {
-    for (var idx in array) {
-        if (Object.prototype.hasOwnProperty.call(array, idx)) {
-            iterFunction.call(this, array[idx], parseInt(idx, 10));
-        }
-    }
-}
-
-function getCredentials(ini) {
-    //Get shared credential function from AWS SDK.
-    var map = {};
-    var currentSection ={};
-    arrayEach(ini.split(/\r?\n/), function(line) {
-        line = line.split(/(^|\s)[;#]/)[0]; // remove comments
-        var section = line.match(/^\s*\[([^\[\]]+)\]\s*$/);
-        if (section) {
-          currentSection = section[1];
-        } else if (currentSection) {
-          var item = line.match(/^\s*(.+?)\s*=\s*(.+?)\s*$/);
-          if (item) {
-            map[currentSection] = map[currentSection] || {};
-            map[currentSection][item[1]] = item[2];
-          }
-        }
-    });
-    return map;
-}
-
 //
 // This method is the exposed module; it validates the mqtt options,
 // creates a secure mqtt connection via TLS, and returns the mqtt
@@ -243,23 +190,23 @@ function DeviceClient(options) {
    //
    //    +- - - - - - - - - - - - - - - - - - - - - - - - +
    //    |                                                |
-   //
-   //    |                    FILLING                     |
-   //
+   //                                                      
+   //    |                    FILLING                     |         
+   //                                                      
    //    |                                                |
-   //              +-----------------------------+
+   //              +-----------------------------+         
    //    |         |                             |        |
-   //              |                             |
+   //              |                             |         
    //    |         v                             |        |
    //    +- - Established                     Inactive - -+
    //    |         |                             ^        |
-   //              |                             |
+   //              |                             |         
    //    |         |                             |        |
-   //              +----------> Stable ----------+
+   //              +----------> Stable ----------+        
    //    |                                                |
-   //
-   //    |                     DRAINING                   |
-   //
+   //                                                      
+   //    |                     DRAINING                   |         
+   //                                                      
    //    |                                                |
    //    +- - - - - - - - - - - - - - - - - - - - - - - - +
    //
@@ -268,24 +215,16 @@ function DeviceClient(options) {
    //
    // During draining, existing subscriptions are re-sent,
    // followed by any publishes which occurred while offline.
-   //
+   //    
 
    //
-   // Publish cache used during filling
+   // Operation cache used during filling
    //
-   var offlinePublishQueue = [];
+   var offlineOperations = [];
    var offlineQueueing = true;
    var offlineQueueMaxSize = 0;
    var offlineQueueDropBehavior = 'oldest'; // oldest or newest
-   offlinePublishQueue.length = 0;
-
-   //
-   // Subscription queue for subscribe/unsubscribe requests received when offline
-   // We do not want an unbounded queue so for now limit to current max subs in AWS IoT
-   //
-   var offlineSubscriptionQueue = [];
-   var offlineSubscriptionQueueMaxSize = 50;
-   offlineSubscriptionQueue.length = 0;
+   offlineOperations.length = 0;
 
    //
    // Subscription cache; active if autoResubscribe === true
@@ -311,26 +250,24 @@ function DeviceClient(options) {
    var drainingTimer = null;
    var drainTimeMs = 250;
 
-   //Default keep alive time interval in seconds.
-   var defaultKeepalive = 300;
    //
-   // These properties control the reconnect behavior of the MQTT Client.  If
-   // the MQTT client becomes disconnected, it will attempt to reconnect after
+   // These properties control the reconnect behavior of the MQTT Client.  If 
+   // the MQTT client becomes disconnected, it will attempt to reconnect after 
    // a quiet period; this quiet period doubles with each reconnection attempt,
-   // e.g. 1 seconds, 2 seconds, 2, 8, 16, 32, etc... up until a maximum
+   // e.g. 1 seconds, 2 seconds, 2, 8, 16, 32, etc... up until a maximum 
    // reconnection time is reached.
    //
-   // If a connection is active for the minimum connection time, the quiet
+   // If a connection is active for the minimum connection time, the quiet 
    // period is reset to the initial value.
    //
-   // baseReconnectTime: the time in seconds to wait before the first
+   // baseReconnectTime: the time in seconds to wait before the first 
    //     reconnect attempt
    //
-   // minimumConnectionTime: the time in seconds that a connection must be
-   //     active before resetting the current reconnection time to the base
+   // minimumConnectionTime: the time in seconds that a connection must be 
+   //     active before resetting the current reconnection time to the base 
    //     reconnection time
    //
-   // maximumReconnectTime: the maximum time in seconds to wait between
+   // maximumReconnectTime: the maximum time in seconds to wait between 
    //     reconnect attempts
    //
    // The defaults for these values are:
@@ -357,30 +294,13 @@ function DeviceClient(options) {
    var awsAccessId;
    var awsSecretKey;
    var awsSTSToken;
+
    //
    // Validate options, set default reconnect period if not specified.
    //
-   var metricPrefix = "?SDK=JavaScript&Version=";
-   var pjson = require('../package.json');
-   var sdkVersion = pjson.version;
-   var defaultUsername = metricPrefix + sdkVersion;
-
    if (isUndefined(options) ||
       Object.keys(options).length === 0) {
       throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
-   }
-   if (isUndefined(options.keepalive)) {
-      options.keepalive = defaultKeepalive;
-   }
-   //
-   // Metrics will be enabled by default unless the user explicitly disables it
-   //
-   if (isUndefined(options.enableMetrics) || options.enableMetrics === true){
-      if (isUndefined(options.username)) {
-         options.username = defaultUsername;
-      } else {
-         options.username += defaultUsername;
-      }
    }
    if (!isUndefined(options.baseReconnectTimeMs)) {
       baseReconnectTimeMs = options.baseReconnectTimeMs;
@@ -409,10 +329,6 @@ function DeviceClient(options) {
    currentReconnectTimeMs = baseReconnectTimeMs;
    options.reconnectPeriod = currentReconnectTimeMs;
    options.fastDisconnectDetection = true;
-   //
-   //SDK has its own logic to deal with auto resubscribe
-   //
-   options.resubscribe = false;
 
    //
    // Verify that the reconnection timing parameters make sense.
@@ -443,12 +359,11 @@ function DeviceClient(options) {
    }
 
    if (isUndefined(options.host)) {
-      throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
-   }
-
-   // set SNI, do not override existing definitions if available
-   if (isUndefined(options.servername)) {
-      options.servername = options.host.split(':')[0];  // Stripping out port if it exists along with host name
+      if (!(isUndefined(options.region))) {
+         options.host = 'data.iot.' + options.region + '.amazonaws.com';
+      } else {
+         throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
+      }
    }
 
    if (options.protocol === 'mqtts') {
@@ -459,67 +374,35 @@ function DeviceClient(options) {
 
       //read and map certificates
       tlsReader(options);
-   } else if (options.protocol === 'wss' || options.protocol === 'wss-custom-auth') {
-      if (options.protocol === 'wss') {
-         //
-         // AWS access id and secret key
-         // It first check Input options and Environment variables
-         // If that not available, it will try to load credentials from default credential file
-         if (!isUndefined(options.accessKeyId)) {
-            awsAccessId = options.accessKeyId;
-         } else {
-            awsAccessId = process.env.AWS_ACCESS_KEY_ID;
-         }
-         if (!isUndefined(options.secretKey)) {
-            awsSecretKey = options.secretKey;
-         } else {
-            awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
-         }
-         if (!isUndefined(options.sessionToken)) {
-            awsSTSToken = options.sessionToken;
-         } else {
-            awsSTSToken = process.env.AWS_SESSION_TOKEN;
-         }
-         if (isUndefined(awsAccessId) || isUndefined(awsSecretKey)) {
-            var filename;
-            var user_profile = options.profile || process.env.AWS_PROFILE || 'default';
-            try {
-               if (!isUndefined(options.filename)) {
-                  filename = options.filename;
-               } else {
-                  filename = _loadDefaultFilename();
-               }
-               var creds = getCredentials(fs.readFileSync(filename, 'utf-8'));
-               var profile = creds[user_profile];
-               awsAccessId = profile.aws_access_key_id;
-               awsSecretKey = profile.aws_secret_access_key;
-               awsSTSToken = profile.aws_session_token;
-            } catch (e) {
-               console.log(e);
-               console.log('Failed to read credentials for AWS_PROFILE ' + user_profile + ' from ' + filename);
-            }
-         }
-         // AWS Access Key ID and AWS Secret Key must be defined
-         if (isUndefined(awsAccessId) || (isUndefined(awsSecretKey))) {
-            console.log('To connect via WebSocket/SigV4, AWS Access Key ID and AWS Secret Key must be passed either in options or as environment variables; see README.md');
-            throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
-         }
+   } else if (options.protocol === 'wss') {
+      //
+      // AWS access id and secret key must be available as either
+      // options or in the environment.
+      //
+      if (!isUndefined(options.accessKeyId)) {
+         awsAccessId = options.accessKeyId;
       } else {
-         if (isUndefined(options.customAuthHeaders) && isUndefined(options.customAuthQueryString)) {
-            console.log('To authenticate with a custom authorizer, you must provide the required HTTP headers or queryString; see README.md');
-            throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
-         }
+         awsAccessId = process.env.AWS_ACCESS_KEY_ID;
       }
-
-      if (!isUndefined(options.host) && isUndefined(options.region)) {
-         var pattern = /[a-zA-Z0-9]+\.iot\.([a-z]+-[a-z]+-[0-9]+)\.amazonaws\..+/;
-         var region = pattern.exec(options.host);
-         if (region === null) {
-            console.log('Host endpoint is not valid');
-            throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
-         } else {
-            options.region = region[1];
-         }
+      if (!isUndefined(options.secretKey)) {
+         awsSecretKey = options.secretKey;
+      } else {
+         awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
+      }
+      if (!isUndefined(options.sessionToken)) {
+         awsSTSToken = options.sessionToken;
+      } else {
+         awsSTSToken = process.env.AWS_SESSION_TOKEN;
+      }
+      // AWS region must be defined when connecting via WebSocket/SigV4
+      if (isUndefined(options.region)) {
+         console.log('AWS region must be defined when connecting via WebSocket/SigV4; see README.md');
+         throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
+      }
+      // AWS Access Key ID and AWS Secret Key must be defined
+      if (isUndefined(awsAccessId) || (isUndefined(awsSecretKey))) {
+         console.log('To connect via WebSocket/SigV4, AWS Access Key ID and AWS Secret Key must be passed either in options or as environment variables; see README.md');
+         throw new Error(exceptions.INVALID_CONNECT_OPTIONS);
       }
       // set port, do not override existing definitions if available
       if (isUndefined(options.port)) {
@@ -527,15 +410,10 @@ function DeviceClient(options) {
       }
       // check websocketOptions and ensure that the protocol is defined
       if (isUndefined(options.websocketOptions)) {
-         options.websocketOptions = {
-            protocol: 'mqttv3.1'
-         };
-      } else {
-         options.websocketOptions.protocol = 'mqttv3.1';
+         options.websocketOptions = { protocol: 'mqttv3.1' };
       }
-
-      if (options.protocol === 'wss-custom-auth') {
-         options.websocketOptions.headers = options.customAuthHeaders;
+      else {
+         options.websocketOptions.protocol = 'mqttv3.1';
       }
    }
 
@@ -549,14 +427,7 @@ function DeviceClient(options) {
    protocols.mqtts = require('./lib/tls');
    protocols.wss = require('./lib/ws');
 
-   function _loadDefaultFilename() {
-      var home = process.env.HOME ||
-           process.env.USERPROFILE ||
-           (process.env.HOMEPATH ? ((process.env.HOMEDRIVE || 'C:/') + process.env.HOMEPATH) : null);
-      return path.join(home, '.aws', 'credentials');
-
-   }
-   function _addToSubscriptionCache(topic, options) {
+   function _addToSubscriptionCache(topic, options, callback) {
       var matches = activeSubscriptions.filter(function(element) {
          return element.topic === topic;
       });
@@ -566,24 +437,25 @@ function DeviceClient(options) {
       if (matches.length === 0) {
          activeSubscriptions.push({
             topic: topic,
-            options: options
+            options: options,
+            callback: callback
          });
       }
    }
 
-   function _deleteFromSubscriptionCache(topic, options) {
+   function _deleteFromSubscriptionCache(topic, options, callback) {
       var remaining = activeSubscriptions.filter(function(element) {
          return element.topic !== topic;
       });
       activeSubscriptions = remaining;
    }
 
-   function _updateSubscriptionCache(operation, topics, options) {
+   function _updateSubscriptionCache(operation, topics, options, callback) {
       var opFunc = null;
 
       //
       // Don't cache subscriptions if auto-resubscribe is disabled
-      //
+      // 
       if (autoResubscribe === false) {
          return;
       }
@@ -597,15 +469,15 @@ function DeviceClient(options) {
       //
       if (Object.prototype.toString.call(topics) === '[object Array]') {
          topics.forEach(function(item, index, array) {
-            opFunc(item, options);
+            opFunc(item, options, callback);
          });
       } else {
-         opFunc(topics, options);
+         opFunc(topics, options, callback);
       }
    }
 
    //
-   // Return true if the connection is currently in a 'filling'
+   // Return true if the connection is currently in a 'filling' 
    // state
    //
    function _filling() {
@@ -613,11 +485,10 @@ function DeviceClient(options) {
    }
 
    function _wrapper(client) {
-      var protocol = options.protocol;
-      if (protocol === 'wss') {
+      if (options.protocol === 'wss') {
          var url;
          //
-         // If the access id and secret key are available, prepare the URL.
+         // If the access id and secret key are available, prepare the URL. 
          // Otherwise, set the url to an invalid value.
          //
          if (awsAccessId === '' || awsSecretKey === '') {
@@ -631,24 +502,17 @@ function DeviceClient(options) {
          }
 
          options.url = url;
-      } else if (protocol === 'wss-custom-auth') {
-         options.url = prepareWebSocketCustomAuthUrl(options);
-         if (options.debug === true) {
-            console.log('using websockets custom auth, will connect to \'' + options.url + '\'...');
-         }
-         // Treat the request as a standard websocket request from here onwards
-         protocol = 'wss';
       }
-      return protocols[protocol](client, options);
+      return protocols[options.protocol](client, options);
    }
 
-   var device = new mqtt.MqttClient(_wrapper, options);
+   const device = new mqtt.MqttClient(_wrapper, options);
 
    //handle events from the mqtt client
 
    //
    // Timeout expiry function for the connection timer; once a connection
-   // is stable, reset the current reconnection time to the base value.
+   // is stable, reset the current reconnection time to the base value. 
    //
    function _markConnectionStable() {
       currentReconnectTimeMs = baseReconnectTimeMs;
@@ -663,17 +527,17 @@ function DeviceClient(options) {
    // Trim the offline queue if required; returns true if another
    // element can be placed in the queue
    //
-   function _trimOfflinePublishQueueIfNecessary() {
+   function _trimOfflineQueueIfNecessary() {
       var rc = true;
 
       if ((offlineQueueMaxSize > 0) &&
-         (offlinePublishQueue.length >= offlineQueueMaxSize)) {
+         (offlineOperations.length >= offlineQueueMaxSize)) {
          //
          // The queue has reached its maximum size, trim it
          // according to the defined drop behavior.
          //
          if (offlineQueueDropBehavior === 'oldest') {
-            offlinePublishQueue.shift();
+            offlineOperations.shift();
          } else {
             rc = false;
          }
@@ -692,59 +556,39 @@ function DeviceClient(options) {
       // copy of the array.  We shift them out one-by-one until
       // all have been processed, leaving the official record
       // of active subscriptions untouched.
-      //
+      // 
       var subscription = clonedSubscriptions.shift();
 
       if (!isUndefined(subscription)) {
-         //
-         // If the 3rd argument (namely callback) is not present, we will
-         // use two-argument form to call mqtt.Client#subscribe(), which
-         // supports both subscribe(topics, options) and subscribe(topics, callback).
-         //
-         if (!isUndefined(subscription.callback)) {
-            device.subscribe(subscription.topic, subscription.options, subscription.callback);
-         } else {
-            device.subscribe(subscription.topic, subscription.options);
-         }
+         device.subscribe(subscription.topic,
+            subscription.options,
+            subscription.callback);
       } else {
          //
-         // If no remaining active subscriptions to process,
-         // then handle subscription requests queued while offline.
-         //
-         var req = offlineSubscriptionQueue.shift();
+         // Then handle cached operations...
+         // 
+         var operation = offlineOperations.shift();
 
-         if (!isUndefined(req)) {
-            _updateSubscriptionCache(req.type, req.topics, req.options);
-            if (req.type === 'subscribe') {
-               if (!isUndefined(req.callback)) {
-                  device.subscribe(req.topics, req.options, req.callback);
-               } else {
-                  device.subscribe(req.topics, req.options);
-               }
-            } else if (req.type === 'unsubscribe') {
-               device.unsubscribe(req.topics, req.callback);
+         if (!isUndefined(operation)) {
+            switch (operation.type) {
+               case 'publish':
+                  device.publish(operation.topic,
+                     operation.message,
+                     operation.options,
+                     operation.callback);
+                  break;
+               default:
+                  console.log('unrecognized operation \'' + operation + '\' during draining!');
+                  break;
             }
-         } else {
+         }
+         if (offlineOperations.length === 0) {
             //
-            // If no active or queued subscriptions remaining to process,
-            // then handle queued publish operations.
+            // The subscription and operation queues are fully drained, 
+            // cancel the draining timer.
             //
-            var offlinePublishMessage = offlinePublishQueue.shift();
-
-            if (!isUndefined(offlinePublishMessage)) {
-               device.publish(offlinePublishMessage.topic,
-                  offlinePublishMessage.message,
-                  offlinePublishMessage.options,
-                  offlinePublishMessage.callback);
-            }
-            if (offlinePublishQueue.length === 0) {
-               //
-               // The subscription and offlinePublishQueue queues are fully drained,
-               // cancel the draining timer.
-               //
-               clearInterval(drainingTimer);
-               drainingTimer = null;
-            }
+            clearInterval(drainingTimer);
+            drainingTimer = null;
          }
       }
    }
@@ -753,7 +597,7 @@ function DeviceClient(options) {
    // handled here, *and* propagated upwards.
    //
 
-   device.on('connect', function(connack) {
+   device.on('connect', function() {
       //
       // If not already running, start the connection timer.
       //
@@ -763,7 +607,7 @@ function DeviceClient(options) {
       }
       connectionState = 'established';
       //
-      // If not already running, start the draining timer and
+      // If not already running, start the draining timer and 
       // clone the active subscriptions.
       //
       if (drainingTimer === null) {
@@ -771,12 +615,9 @@ function DeviceClient(options) {
          drainingTimer = setInterval(_drainOperationQueue,
             drainTimeMs);
       }
-      that.emit('connect', connack);
+      that.emit('connect');
    });
-   device.on('close', function(err) {
-      if (!isUndefined(err)) {
-         that.emit('error', err);
-      }
+   device.on('close', function() {
       if ((!isUndefined(options)) && (options.debug === true)) {
          console.log('connection lost - will attempt reconnection in ' +
             device.options.reconnectPeriod / 1000 + ' seconds...');
@@ -800,15 +641,12 @@ function DeviceClient(options) {
       //
       // Update the current reconnect timeout; this will be the
       // next timeout value used if this connect attempt fails.
-      //
+      // 
       currentReconnectTimeMs = currentReconnectTimeMs * 2;
       currentReconnectTimeMs = Math.min(maximumReconnectTimeMs, currentReconnectTimeMs);
       device.options.reconnectPeriod = currentReconnectTimeMs;
 
       that.emit('reconnect');
-   });
-   device.on('end', function() {
-      that.emit('end');
    });
    device.on('offline', function() {
       that.emit('offline');
@@ -816,28 +654,24 @@ function DeviceClient(options) {
    device.on('error', function(error) {
       that.emit('error', error);
    });
-   device.on('packetsend', function(packet) {
-      that.emit('packetsend', packet);
-   });
-   device.on('packetreceive', function(packet) {
-      that.emit('packetreceive', packet);
-   });
    device.on('message', function(topic, message, packet) {
       that.emit('message', topic, message, packet);
    });
+
    //
    // The signatures of these methods *must* match those of the mqtt.js
    // client.
    //
    this.publish = function(topic, message, options, callback) {
       //
-      // If filling or still draining, push this publish operation
+      // If filling or still draining, push this publish operation 
       // into the offline operations queue; otherwise, perform it
       // immediately.
       //
       if (offlineQueueing === true && (_filling() || drainingTimer !== null)) {
-         if (_trimOfflinePublishQueueIfNecessary()) {
-            offlinePublishQueue.push({
+         if (_trimOfflineQueueIfNecessary()) {
+            offlineOperations.push({
+               type: 'publish',
                topic: topic,
                message: message,
                options: options,
@@ -851,71 +685,31 @@ function DeviceClient(options) {
       }
    };
    this.subscribe = function(topics, options, callback) {
+      _updateSubscriptionCache('subscribe', topics, options, callback);
       if (!_filling() || autoResubscribe === false) {
-         _updateSubscriptionCache('subscribe', topics, options); // we do not store callback in active cache
-         //
-         // If the 3rd argument (namely callback) is not present, we will
-         // use two-argument form to call mqtt.Client#subscribe(), which
-         // supports both subscribe(topics, options) and subscribe(topics, callback).
-         //
-         if (!isUndefined(callback)) {
-            device.subscribe(topics, options, callback);
-         } else {
-            device.subscribe(topics, options);
-         }
-      } else {
-         // we're offline - queue this subscription request
-         if (offlineSubscriptionQueue.length < offlineSubscriptionQueueMaxSize) {
-            offlineSubscriptionQueue.push({
-               type: 'subscribe',
-               topics: topics,
-               options: options,
-               callback: callback
-            });
-         } else {
-            that.emit('error', new Error('Maximum queued offline subscription reached'));
-         }
+         device.subscribe(topics, options, callback);
       }
    };
-   this.unsubscribe = function(topics, callback) {
+   this.unsubscribe = function(topics, options, callback) {
+      _updateSubscriptionCache('unsubscribe', topics, options, callback);
       if (!_filling() || autoResubscribe === false) {
-         _updateSubscriptionCache('unsubscribe', topics);
-         device.unsubscribe(topics, callback);
-      } else {
-         // we're offline - queue this unsubscribe request
-         if (offlineSubscriptionQueue.length < offlineSubscriptionQueueMaxSize) {
-            offlineSubscriptionQueue.push({
-               type: 'unsubscribe',
-               topics: topics,
-               options: options,
-               callback: callback
-            });
-         }
+         device.unsubscribe(topics, options, callback);
       }
    };
    this.end = function(force, callback) {
       device.end(force, callback);
    };
-
-   this.handleMessage = device.handleMessage.bind(device);
-
-   device.handleMessage = function(packet, callback) {
-      that.handleMessage(packet, callback);
+   this.handleMessage = function(packet, callback) {
+      device.handleMessage(packet, callback);
    };
-
+   //
+   // Call this function to update the credentials used when
+   // connecting via WebSocket/SigV4.
+   //
    this.updateWebSocketCredentials = function(accessKeyId, secretKey, sessionToken, expiration) {
       awsAccessId = accessKeyId;
       awsSecretKey = secretKey;
       awsSTSToken = sessionToken;
-   };
-   this.getWebsocketHeaders = function() {
-      return options.websocketOptions.headers;
-   };
-   //
-   // Call this function to update the custom auth headers
-   //
-   this.updateCustomAuthHeaders = function(newHeaders) {
-      options.websocketOptions.headers = newHeaders;
    };
    //
    // Used for integration testing only
@@ -938,4 +732,3 @@ module.exports.DeviceClient = DeviceClient;
 // Exported for unit testing only
 //
 module.exports.prepareWebSocketUrl = prepareWebSocketUrl;
-module.exports.prepareWebSocketCustomAuthUrl = prepareWebSocketCustomAuthUrl;
